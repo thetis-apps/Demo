@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Customizations for Demo
+
+# Transform section specifies one or more macros that AWS CloudFormation uses to process your template
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-section-structure.html
+Transform:
+- AWS::Serverless-2016-10-31
+
+# Metadata to use for the publishing to the SAR
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: thetis-ims-demo
+    Description: Application containing customizations for Demo subscriber
+    Author: thetis-apps
+    SpdxLicenseId: Apache-2.0
+    LicenseUrl: LICENSE.txt
+    ReadmeUrl: README.md
+    Labels: ['thetis-ims']
+    HomePageUrl: https://github.com/thetis-apps/Demo
+    SemanticVersion: 3.0.0
+    SourceCodeUrl: https://github.com/thetis-apps/Demo
+    
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Runtime: nodejs16.x
+
+# Parameters of the application 
+Parameters:
+  ContextId:
+    Type: String
+    Description: Context that this application is handling events for.
+    MinLength: '1'
+  ClientId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: ThetisClientId
+  ClientSecret:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: ThetisClientSecret
+  ApiKey:
+    Type: String
+  DevOpsEmail:
+    Description: The email address to send mail to when messages in the dead letter queue.
+    Type: String
+    MinLength: 4
+  GitHubAccessToken:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: GitHubAccessToken
+
+# Resources declares the AWS resources that you want to include in the stack
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html
+Resources:    
+  DocumentApi:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: 
+        ApplicationId: arn:aws:serverlessrepo:eu-west-1:491855422919:applications/thetis-ims-document-api
+        SemanticVersion: 1.3.2
+      Parameters:
+        ContextId: !Ref ContextId
+        ApiKey: !Ref ApiKey
+        DevOpsEmail: !Ref DevOpsEmail
+        FrontendUrl: https://demo.thetis-apps.net
+  
+  FrontendApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: Demo
+      Repository: https://github.com/thetis-apps/DemoApp
+      AccessToken: !Ref GitHubAccessToken
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            # IMPORTANT - Please verify your build commands
+            build:
+              commands: [
+                    "printenv DOCUMENT_API_URL",
+                    "sed -i s+DOCUMENT_API_URL+$DOCUMENT_API_URL+g script.js"
+                  ]
+          artifacts:
+            # IMPORTANT - Please verify your build output directory
+            baseDirectory: /
+            files:
+              - '**/*'
+          cache:
+            paths: []
+                  
+  FrontendBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt FrontendApp.AppId
+      BranchName: main
+      EnvironmentVariables:
+        - 
+          Name: DOCUMENT_API_URL        
+          Value: !GetAtt DocumentApi.Outputs.Api
+          
+  FrontendDomain:
+    Type: AWS::Amplify::Domain
+    Properties:
+      AppId: !GetAtt FrontendApp.AppId
+      DomainName: thetis-apps.net  
+      SubDomainSettings:
+        -
+          BranchName: !GetAtt FrontendBranch.BranchName 
+          Prefix: demo
+  
+Outputs:
+  Api:
+    Description: "API Gateway endpoint URL for Prod stage for Multi Picking function"
+    Value: !GetAtt DocumentApi.Outputs.Api
+  
